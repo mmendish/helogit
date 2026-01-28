@@ -129,28 +129,45 @@ function isSupportedTextFile(file) {
 
 function findTextFrameByAltText(doc, altText) {
     var frames = doc.textFrames;
+    var matches = [];
     for (var i = 0; i < frames.length; i++) {
         if (getItemLabel(frames[i]) === altText) {
-            return frames[i];
+            matches.push(frames[i]);
         }
     }
 
+    if (matches.length === 1) {
+        return matches[0];
+    }
+
+    if (matches.length > 1) {
+        alert("Multiple text frames labeled " + altText + ". Please keep labels unique.");
+        return matches[0];
+    }
+
     var items = doc.allPageItems;
+    var fallback = null;
+    var fallbackCount = 0;
     for (var j = 0; j < items.length; j++) {
         var item = items[j];
         if (getItemLabel(item) !== altText) {
             continue;
         }
-        var frame = getFirstTextFrameFromItem(item);
+        var frame = getSingleTextFrameFromItem(item);
         if (frame) {
-            return frame;
+            fallback = frame;
+            fallbackCount += 1;
         }
     }
 
-    return null;
+    if (fallbackCount > 1) {
+        alert("Multiple items labeled " + altText + " contain text frames. Label the text frame itself.");
+    }
+
+    return fallback;
 }
 
-function getFirstTextFrameFromItem(item) {
+function getSingleTextFrameFromItem(item) {
     try {
         if (item instanceof TextFrame) {
             return item;
@@ -159,7 +176,7 @@ function getFirstTextFrameFromItem(item) {
     }
 
     try {
-        if (item.textFrames && item.textFrames.length > 0) {
+        if (item.textFrames && item.textFrames.length === 1) {
             return item.textFrames[0];
         }
     } catch (error2) {
