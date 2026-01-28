@@ -20,8 +20,12 @@
             return;
         }
 
-        var textFile = File.openDialog("Select text file", textFileFilter);
+        var textFile = File.openDialog("Select text file");
         if (!textFile) {
+            return;
+        }
+        if (!isSupportedTextFile(textFile)) {
+            alert("Unsupported file type. Please select a .doc, .docx, .rtf, or .txt file.");
             return;
         }
 
@@ -64,9 +68,9 @@
     }
 })();
 
-function textFileFilter(file) {
-    if (file instanceof Folder) {
-        return true;
+function isSupportedTextFile(file) {
+    if (!(file instanceof File)) {
+        return false;
     }
     return /\.(docx?|rtf|txt)$/i.test(file.name);
 }
@@ -135,6 +139,10 @@ function trimString(value) {
     return value.replace(/^\s+|\s+$/g, "");
 }
 
+function normalizeStyleName(value) {
+    return trimString(value).toLowerCase();
+}
+
 function findParagraphStartingWith(story, marker) {
     var escaped = marker.replace(/[-\/\\^$*+?.()|[\]{}]/g, "\\$&");
     var re = new RegExp("^\\s*" + escaped);
@@ -152,8 +160,8 @@ function stripTrailingReturn(text) {
 }
 
 function getParagraphStyle(doc, name) {
-    var style = doc.paragraphStyles.itemByName(name);
-    if (!style.isValid) {
+    var style = findParagraphStyle(doc, name);
+    if (!style) {
         alert("Missing paragraph style: " + name);
         return null;
     }
@@ -161,12 +169,34 @@ function getParagraphStyle(doc, name) {
 }
 
 function getCharacterStyle(doc, name) {
-    var style = doc.characterStyles.itemByName(name);
-    if (!style.isValid) {
+    var style = findCharacterStyle(doc, name);
+    if (!style) {
         alert("Missing character style: " + name);
         return null;
     }
     return style;
+}
+
+function findParagraphStyle(doc, name) {
+    var target = normalizeStyleName(name);
+    var styles = doc.paragraphStyles;
+    for (var i = 0; i < styles.length; i++) {
+        if (normalizeStyleName(styles[i].name) === target) {
+            return styles[i];
+        }
+    }
+    return null;
+}
+
+function findCharacterStyle(doc, name) {
+    var target = normalizeStyleName(name);
+    var styles = doc.characterStyles;
+    for (var i = 0; i < styles.length; i++) {
+        if (normalizeStyleName(styles[i].name) === target) {
+            return styles[i];
+        }
+    }
+    return null;
 }
 
 function applyParagraphStyleToStory(story, style, clearAllOverrides) {
