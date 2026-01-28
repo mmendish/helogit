@@ -415,9 +415,16 @@ function getTextRangeByParagraphIndices(story, startIdx, endIdx) {
     }
     var startParagraph = story.paragraphs[startIdx];
     var endParagraph = story.paragraphs[endIdx];
-    var start = startParagraph.insertionPoints[0];
-    var end = endParagraph.insertionPoints[-1];
-    return story.texts.itemByRange(start, end);
+    var startChar = startParagraph.characters[0];
+    var endChar = endParagraph.characters[-1];
+    try {
+        if (!startChar.isValid || !endChar.isValid) {
+            return null;
+        }
+    } catch (error) {
+        return null;
+    }
+    return story.texts.itemByRange(startChar, endChar);
 }
 
 function createTempTextFrame(doc, referenceFrame) {
