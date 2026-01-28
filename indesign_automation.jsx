@@ -125,6 +125,15 @@
         if (libaFrames.length > 0) {
             fitFramesToContent(libaFrames);
             positionLibaFramesFromBottom(libaFrames, 259, 3);
+
+            var libaTop = libaFrames[0].geometricBounds[0];
+            var libaHeader = findPageItemByAltText(doc, "LIBA_HEADER", getItemPage(libaFrames[0]));
+            if (!libaHeader) {
+                libaHeader = findPageItemByName(doc, "LIBA_HEADER", getItemPage(libaFrames[0]));
+            }
+            if (libaHeader) {
+                setItemTop(libaHeader, libaTop);
+            }
         }
 
         if (zoharFrame) {
@@ -295,8 +304,49 @@ function findPageItemByAltText(doc, altText, page) {
     return null;
 }
 
+function findPageItemByName(doc, name, page) {
+    var items = doc.allPageItems;
+    var matches = [];
+    for (var i = 0; i < items.length; i++) {
+        if (!isItemOnPage(items[i], page)) {
+            continue;
+        }
+        try {
+            if (items[i].name === name) {
+                matches.push(items[i]);
+            }
+        } catch (error) {
+        }
+    }
+    if (matches.length > 1) {
+        alert("Multiple items named " + name + ". Using the top-most item.");
+    }
+    if (matches.length > 0) {
+        return selectTopLeftFrame(matches);
+    }
+    return null;
+}
+
 function mmToPoints(valueMm) {
     return UnitValue(valueMm + "mm").as("pt");
+}
+
+function applyTopInset(frame, topInsetMm) {
+    if (topInsetMm === null || topInsetMm === undefined) {
+        return;
+    }
+    try {
+        var inset = frame.textFramePreferences.insetSpacing;
+        if (inset && inset.length === 4) {
+            frame.textFramePreferences.insetSpacing = [
+                mmToPoints(topInsetMm),
+                inset[1],
+                inset[2],
+                inset[3]
+            ];
+        }
+    } catch (error) {
+    }
 }
 
 function fitFramesToContent(frames) {
@@ -317,14 +367,18 @@ function setFrameBottom(frame, bottomPt) {
 }
 
 function positionFrameBottom(frame, bottomMm) {
-    return setFrameBottom(frame, mmToPoints(bottomMm));
+    var page = getItemPage(frame);
+    var pageTop = page ? page.bounds[0] : 0;
+    return setFrameBottom(frame, pageTop + mmToPoints(bottomMm));
 }
 
 function positionLibaFramesFromBottom(frames, bottomMm, gapMm) {
     if (!frames || frames.length === 0) {
         return;
     }
-    var bottomPt = mmToPoints(bottomMm);
+    var page = getItemPage(frames[frames.length - 1]);
+    var pageTop = page ? page.bounds[0] : 0;
+    var bottomPt = pageTop + mmToPoints(bottomMm);
     var gapPt = mmToPoints(gapMm);
     var nextTop = setFrameBottom(frames[frames.length - 1], bottomPt);
     for (var i = frames.length - 2; i >= 0; i--) {
@@ -568,7 +622,7 @@ function populateLibaFrames(baseFrame, blocks, libaStyle, bodyStyle) {
     var frames = [];
     var previousFrame = null;
     for (var i = 0; i < blocks.length; i++) {
-        var frame = (i === 0) ? baseFrame : duplicateFrameBelow(previousFrame, 10);
+        var frame = (i === 0) ? baseFrame : duplicateFrameBelow(previousFrame, 10, 4);
         frame.contents = "";
         frame.contents = blocks[i] ? String(blocks[i]) : "";
 
@@ -585,11 +639,12 @@ function populateLibaFrames(baseFrame, blocks, libaStyle, bodyStyle) {
     return frames;
 }
 
-function duplicateFrameBelow(referenceFrame, gap) {
+function duplicateFrameBelow(referenceFrame, gap, topInsetMm) {
     var duplicate = referenceFrame.duplicate();
     var bounds = referenceFrame.geometricBounds;
     var height = bounds[2] - bounds[0];
     clearAltTextLabel(duplicate);
+    applyTopInset(duplicate, topInsetMm);
     duplicate.geometricBounds = [bounds[2] + gap, bounds[1], bounds[2] + gap + height, bounds[3]];
     return duplicate;
 }
