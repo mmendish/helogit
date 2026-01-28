@@ -89,6 +89,7 @@
         applyParagraphStyleToStory(mainStory, bodyStyle, false);
 
         var tempFrame = null;
+        var libaFrames = [];
         var libaBlock = extractBlockByMarkerAndContains(mainStory, "#", "ליבא בעי");
         if (libaBlock) {
             tempFrame = createTempTextFrame(doc, mainFrame);
@@ -97,7 +98,7 @@
 
             var libaBlocks = extractBlocksByMarker(tempFrame.parentStory, "$");
             if (libaBlocks.length > 0) {
-                populateLibaFrames(libaFrame, libaBlocks, libaStyle, bodyStyle);
+                libaFrames = populateLibaFrames(libaFrame, libaBlocks, libaStyle, bodyStyle);
             }
         }
 
@@ -113,10 +114,27 @@
                 removeLeadingMarker(zoharParagraph, "$");
                 applyParagraphStyleToParagraph(zoharParagraph, zoharStyle, false);
             }
+            applyMarkerParagraphStyle(zoharFrame.parentStory, "%", zoharStyle);
         }
 
         applyPatitim1Styles(mainStory, patitim1ParagraphStyle, patitim1CharacterStyle);
         applyPatitim2Pairs(mainStory, patitim2Style);
+
+        cleanAllTextFrames(doc);
+
+        if (libaFrames.length > 0) {
+            fitFramesToContent(libaFrames);
+            positionLibaFramesFromBottom(libaFrames, 259, 3);
+        }
+
+        if (zoharFrame) {
+            fitFramesToContent([zoharFrame]);
+            var zoharTop = positionFrameBottom(zoharFrame, 259);
+            var zoharTitle = findPageItemByAltText(doc, "ZOHAR_TITLE", getItemPage(zoharFrame));
+            if (zoharTitle) {
+                setItemTop(zoharTitle, zoharTop);
+            }
+        }
 
         alert("Text import and cleanup complete.");
     } catch (error) {
@@ -260,6 +278,67 @@ function clearAltTextLabel(item) {
     }
 }
 
+function findPageItemByAltText(doc, altText, page) {
+    var items = doc.allPageItems;
+    var matches = [];
+    for (var i = 0; i < items.length; i++) {
+        if (getItemAltText(items[i]) === altText && isItemOnPage(items[i], page)) {
+            matches.push(items[i]);
+        }
+    }
+    if (matches.length > 1) {
+        alert("Multiple items labeled " + altText + ". Using the top-most item.");
+    }
+    if (matches.length > 0) {
+        return selectTopLeftFrame(matches);
+    }
+    return null;
+}
+
+function mmToPoints(valueMm) {
+    return UnitValue(valueMm + "mm").as("pt");
+}
+
+function fitFramesToContent(frames) {
+    for (var i = 0; i < frames.length; i++) {
+        try {
+            frames[i].fit(FitOptions.FRAME_TO_CONTENT);
+        } catch (error) {
+        }
+    }
+}
+
+function setFrameBottom(frame, bottomPt) {
+    var bounds = frame.geometricBounds;
+    var height = bounds[2] - bounds[0];
+    var newTop = bottomPt - height;
+    frame.geometricBounds = [newTop, bounds[1], bottomPt, bounds[3]];
+    return newTop;
+}
+
+function positionFrameBottom(frame, bottomMm) {
+    return setFrameBottom(frame, mmToPoints(bottomMm));
+}
+
+function positionLibaFramesFromBottom(frames, bottomMm, gapMm) {
+    if (!frames || frames.length === 0) {
+        return;
+    }
+    var bottomPt = mmToPoints(bottomMm);
+    var gapPt = mmToPoints(gapMm);
+    var nextTop = setFrameBottom(frames[frames.length - 1], bottomPt);
+    for (var i = frames.length - 2; i >= 0; i--) {
+        var newBottom = nextTop - gapPt;
+        nextTop = setFrameBottom(frames[i], newBottom);
+    }
+}
+
+function setItemTop(item, topPt) {
+    var bounds = item.geometricBounds;
+    var height = bounds[2] - bounds[0];
+    item.geometricBounds = [topPt, bounds[1], topPt + height, bounds[3]];
+}
+
 function trimString(value) {
     return value.replace(/^\s+|\s+$/g, "");
 }
@@ -292,6 +371,52 @@ function removeLeadingEmptyParagraphs(story) {
             break;
         }
         paragraph.remove();
+    }
+}
+
+function applyMarkerParagraphStyle(story, marker, style) {
+    var paragraphs = story.paragraphs;
+    for (var i = 0; i < paragraphs.length; i++) {
+        if (!paragraphStartsWith(paragraphs[i], marker)) {
+            continue;
+        }
+        removeLeadingMarker(paragraphs[i], marker);
+        applyParagraphStyleToParagraph(paragraphs[i], style, false);
+    }
+}
+
+function removeEmptyParagraphsGrep(story) {
+    changeGrep(story, "^\\r", "");
+}
+
+function removeParagraphsWithEquals(story) {
+    changeGrep(story, "^.*==.*==.*==.*$", "");
+}
+
+function cleanAllTextFrames(doc) {
+    var stories = [];
+    var frames = doc.textFrames;
+    for (var i = 0; i < frames.length; i++) {
+        var story = frames[i].parentStory;
+        if (!story) {
+            continue;
+        }
+        var exists = false;
+        for (var j = 0; j < stories.length; j++) {
+            if (stories[j] === story) {
+                exists = true;
+                break;
+            }
+        }
+        if (!exists) {
+            stories.push(story);
+        }
+    }
+
+    for (var s = 0; s < stories.length; s++) {
+        removeLeadingEmptyParagraphs(stories[s]);
+        removeParagraphsWithEquals(stories[s]);
+        removeEmptyParagraphsGrep(stories[s]);
     }
 }
 
@@ -440,6 +565,7 @@ function createTempTextFrame(doc, referenceFrame) {
 }
 
 function populateLibaFrames(baseFrame, blocks, libaStyle, bodyStyle) {
+    var frames = [];
     var previousFrame = null;
     for (var i = 0; i < blocks.length; i++) {
         var frame = (i === 0) ? baseFrame : duplicateFrameBelow(previousFrame, 10);
@@ -453,8 +579,10 @@ function populateLibaFrames(baseFrame, blocks, libaStyle, bodyStyle) {
             applyParagraphStyleToParagraph(story.paragraphs[0], libaStyle, false);
         }
 
+        frames.push(frame);
         previousFrame = frame;
     }
+    return frames;
 }
 
 function duplicateFrameBelow(referenceFrame, gap) {
