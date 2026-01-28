@@ -14,9 +14,16 @@
 
         var mainFrame = findTextFrameByAltText(doc, "MAIN_TEXT");
         var kituvFrame = findTextFrameByAltText(doc, "KITUV");
+        var libaFrame = findTextFrameByAltText(doc, "LIBA");
+        var zoharFrame = findTextFrameByAltText(doc, "ZOHAR");
 
         if (!mainFrame || !kituvFrame) {
             alert("Missing text frames labeled MAIN_TEXT and/or KITUV.");
+            return;
+        }
+
+        if (!libaFrame || !zoharFrame) {
+            alert("Missing text frames labeled LIBA and/or ZOHAR.");
             return;
         }
 
@@ -32,7 +39,22 @@
         var bodyStyle = getParagraphStyle(doc, "body");
         var kituvStyle = getParagraphStyle(doc, "כיתוב");
         var b1Style = getCharacterStyle(doc, "B1");
-        if (!bodyStyle || !kituvStyle || !b1Style) {
+        var libaStyle = getParagraphStyle(doc, "ליבא בעי");
+        var zoharStyle = getParagraphStyle(doc, "זוהר");
+        var patitim2Style = getParagraphStyle(doc, "פתיתים 2");
+        var patitim1ParagraphStyle = findParagraphStyle(doc, "פתיתים 1");
+        var patitim1CharacterStyle = null;
+
+        if (!patitim1ParagraphStyle) {
+            patitim1CharacterStyle = findCharacterStyle(doc, "פתיתים 1");
+        }
+
+        if (!bodyStyle || !kituvStyle || !b1Style || !libaStyle || !zoharStyle || !patitim2Style) {
+            return;
+        }
+
+        if (!patitim1ParagraphStyle && !patitim1CharacterStyle) {
+            alert("Missing style: פתיתים 1");
             return;
         }
 
@@ -58,6 +80,36 @@
         normalizeMainStory(mainStory);
         applyCharacterStyleToFontStyles(mainStory, b1Style, ["Bold", "Bold Italic"]);
         applyParagraphStyleToStory(mainStory, bodyStyle, false);
+
+        var tempFrame = null;
+        var libaBlock = extractBlockByMarkerAndContains(mainStory, "#", "ליבא בעי");
+        if (libaBlock) {
+            tempFrame = createTempTextFrame(doc, mainFrame);
+            tempFrame.contents = libaBlock;
+            removeFirstParagraphIfStartsWith(tempFrame.parentStory, "#");
+
+            var libaBlocks = extractBlocksByMarker(tempFrame.parentStory, "$");
+            if (libaBlocks.length > 0) {
+                populateLibaFrames(libaFrame, libaBlocks, libaStyle, bodyStyle);
+            }
+        }
+
+        if (tempFrame) {
+            tempFrame.remove();
+        }
+
+        var zoharText = extractTailAfterMarker(mainStory, "#", "תיקוני זוהר");
+        if (zoharText !== null) {
+            zoharFrame.contents = zoharText;
+            var zoharParagraph = findParagraphStartingWith(zoharFrame.parentStory, "$");
+            if (zoharParagraph) {
+                removeLeadingMarker(zoharParagraph, "$");
+                applyParagraphStyleToParagraph(zoharParagraph, zoharStyle, false);
+            }
+        }
+
+        applyPatitim1Styles(mainStory, patitim1ParagraphStyle, patitim1CharacterStyle);
+        applyPatitim2Pairs(mainStory, patitim2Style);
 
         alert("Text import and cleanup complete.");
     } catch (error) {
@@ -157,6 +209,216 @@ function findParagraphStartingWith(story, marker) {
 
 function stripTrailingReturn(text) {
     return text.replace(/\r$/, "");
+}
+
+function escapeForRegExp(value) {
+    return value.replace(/[-\/\\^$*+?.()|[\]{}]/g, "\\$&");
+}
+
+function paragraphStartsWith(paragraph, marker) {
+    var text = stripTrailingReturn(paragraph.contents);
+    var re = new RegExp("^\\s*" + escapeForRegExp(marker));
+    return re.test(text);
+}
+
+function removeLeadingMarker(paragraph, marker) {
+    var text = stripTrailingReturn(paragraph.contents);
+    var re = new RegExp("^\\s*" + escapeForRegExp(marker) + "\\s*");
+    paragraph.contents = text.replace(re, "");
+}
+
+function findParagraphIndexStartingWith(story, marker, startIndex) {
+    var paragraphs = story.paragraphs;
+    for (var i = startIndex; i < paragraphs.length; i++) {
+        if (paragraphStartsWith(paragraphs[i], marker)) {
+            return i;
+        }
+    }
+    return -1;
+}
+
+function findParagraphIndexByMarkerAndContains(story, marker, containsText) {
+    var paragraphs = story.paragraphs;
+    for (var i = 0; i < paragraphs.length; i++) {
+        var text = stripTrailingReturn(paragraphs[i].contents);
+        if (paragraphStartsWith(paragraphs[i], marker) && text.indexOf(containsText) !== -1) {
+            return i;
+        }
+    }
+    return -1;
+}
+
+function findNextParagraphIndexStartingWith(story, marker, startIndex) {
+    return findParagraphIndexStartingWith(story, marker, startIndex);
+}
+
+function extractBlockByMarkerAndContains(story, marker, containsText) {
+    var startIdx = findParagraphIndexByMarkerAndContains(story, marker, containsText);
+    if (startIdx < 0) {
+        return null;
+    }
+    var nextIdx = findNextParagraphIndexStartingWith(story, marker, startIdx + 1);
+    var endIdx = (nextIdx === -1) ? story.paragraphs.length - 1 : nextIdx - 1;
+    var range = story.paragraphs.itemByRange(startIdx, endIdx);
+    var text = range.contents;
+    range.remove();
+    return text;
+}
+
+function extractTailAfterMarker(story, marker, containsText) {
+    var headerIdx = findParagraphIndexByMarkerAndContains(story, marker, containsText);
+    if (headerIdx < 0) {
+        return null;
+    }
+    var startIdx = headerIdx + 1;
+    var lastIdx = story.paragraphs.length - 1;
+    var text = "";
+    if (startIdx <= lastIdx) {
+        var range = story.paragraphs.itemByRange(startIdx, lastIdx);
+        text = range.contents;
+        range.remove();
+    }
+    if (headerIdx >= 0 && headerIdx < story.paragraphs.length) {
+        story.paragraphs[headerIdx].remove();
+    }
+    return text;
+}
+
+function removeFirstParagraphIfStartsWith(story, marker) {
+    if (story.paragraphs.length === 0) {
+        return;
+    }
+    var firstParagraph = story.paragraphs[0];
+    if (paragraphStartsWith(firstParagraph, marker)) {
+        firstParagraph.remove();
+    }
+}
+
+function extractBlocksByMarker(story, marker) {
+    var blocks = [];
+    while (true) {
+        var startIdx = findParagraphIndexStartingWith(story, marker, 0);
+        if (startIdx < 0) {
+            break;
+        }
+        var nextIdx = findNextParagraphIndexStartingWith(story, marker, startIdx + 1);
+        var endIdx = (nextIdx === -1) ? story.paragraphs.length - 1 : nextIdx - 1;
+        var range = story.paragraphs.itemByRange(startIdx, endIdx);
+        var text = range.contents;
+        range.remove();
+        blocks.push(text);
+    }
+    return blocks;
+}
+
+function createTempTextFrame(doc, referenceFrame) {
+    var page = referenceFrame.parentPage || doc.layoutWindows[0].activePage;
+    var pageBounds = page.bounds;
+    var width = 200;
+    var height = 200;
+    var y1 = pageBounds[0];
+    var x1 = pageBounds[3] + 50;
+    var y2 = y1 + height;
+    var x2 = x1 + width;
+    return page.textFrames.add({ geometricBounds: [y1, x1, y2, x2] });
+}
+
+function populateLibaFrames(baseFrame, blocks, libaStyle, bodyStyle) {
+    var previousFrame = null;
+    for (var i = 0; i < blocks.length; i++) {
+        var frame = (i === 0) ? baseFrame : duplicateFrameBelow(previousFrame, 10);
+        frame.contents = "";
+        frame.contents = blocks[i];
+
+        var story = frame.parentStory;
+        applyParagraphStyleToStory(story, bodyStyle, false);
+        if (story.paragraphs.length > 0) {
+            removeLeadingMarker(story.paragraphs[0], "$");
+            applyParagraphStyleToParagraph(story.paragraphs[0], libaStyle, false);
+        }
+
+        previousFrame = frame;
+    }
+}
+
+function duplicateFrameBelow(referenceFrame, gap) {
+    var duplicate = referenceFrame.duplicate();
+    var bounds = referenceFrame.geometricBounds;
+    var height = bounds[2] - bounds[0];
+    duplicate.geometricBounds = [bounds[2] + gap, bounds[1], bounds[2] + gap + height, bounds[3]];
+    return duplicate;
+}
+
+function applyParagraphStyleToParagraph(paragraph, style, clearAllOverrides) {
+    if (!paragraph || !style) {
+        return;
+    }
+    paragraph.appliedParagraphStyle = style;
+    if (clearAllOverrides) {
+        paragraph.clearOverrides(OverrideType.ALL);
+    } else {
+        paragraph.clearOverrides(OverrideType.PARAGRAPH_ONLY);
+    }
+}
+
+function applyCharacterStyleToParagraph(paragraph, style, clearOverrides) {
+    if (!paragraph || !style) {
+        return;
+    }
+    var text = paragraph.texts[0];
+    text.appliedCharacterStyle = style;
+    if (clearOverrides) {
+        text.clearOverrides(OverrideType.CHARACTER_ONLY);
+    }
+}
+
+function applyPatitim1Styles(story, paragraphStyle, characterStyle) {
+    var paragraphs = story.paragraphs;
+    for (var i = 0; i < paragraphs.length; i++) {
+        if (!paragraphStartsWith(paragraphs[i], "#")) {
+            continue;
+        }
+        removeLeadingMarker(paragraphs[i], "#");
+        if (paragraphStyle) {
+            applyParagraphStyleToParagraph(paragraphs[i], paragraphStyle, false);
+        } else if (characterStyle) {
+            applyCharacterStyleToParagraph(paragraphs[i], characterStyle, true);
+        }
+    }
+}
+
+function applyPatitim2Pairs(story, paragraphStyle) {
+    var i = 0;
+    while (i < story.paragraphs.length) {
+        var current = story.paragraphs[i];
+        if (!paragraphStartsWith(current, "@")) {
+            i += 1;
+            continue;
+        }
+        var next = (i + 1 < story.paragraphs.length) ? story.paragraphs[i + 1] : null;
+        if (next && paragraphStartsWith(next, "@")) {
+            removeLeadingMarker(current, "@");
+            removeLeadingMarker(next, "@");
+            replaceParagraphBreakWithForcedLineBreak(current);
+            applyParagraphStyleToParagraph(current, paragraphStyle, false);
+        } else {
+            removeLeadingMarker(current, "@");
+            applyParagraphStyleToParagraph(current, paragraphStyle, false);
+        }
+        i += 1;
+    }
+}
+
+function replaceParagraphBreakWithForcedLineBreak(paragraph) {
+    try {
+        var lastChar = paragraph.characters[-1];
+        if (lastChar && lastChar.contents === "\r") {
+            lastChar.contents = "\n";
+            return;
+        }
+    } catch (error) {
+    }
+    paragraph.insertionPoints[-1].contents = "\n";
 }
 
 function getParagraphStyle(doc, name) {
