@@ -331,6 +331,21 @@ function mmToPoints(valueMm) {
     return UnitValue(valueMm + "mm").as("pt");
 }
 
+function resolvePagePointToPasteboard(page, point) {
+    if (!page) {
+        return point;
+    }
+    try {
+        var resolved = page.resolve(point, CoordinateSpaces.PAGE_COORDINATES, CoordinateSpaces.PASTEBOARD_COORDINATES);
+        if (resolved instanceof Array && resolved.length > 0 && resolved[0] instanceof Array) {
+            return resolved[0];
+        }
+        return resolved;
+    } catch (error) {
+        return point;
+    }
+}
+
 function applyTopInset(frame, topInsetMm) {
     if (topInsetMm === null || topInsetMm === undefined) {
         return;
@@ -368,8 +383,12 @@ function setFrameBottom(frame, bottomPt) {
 
 function positionFrameBottom(frame, bottomMm) {
     var page = getItemPage(frame);
-    var pageTop = page ? page.bounds[0] : 0;
-    return setFrameBottom(frame, pageTop + mmToPoints(bottomMm));
+    var bottomPt = mmToPoints(bottomMm);
+    if (page) {
+        var resolved = resolvePagePointToPasteboard(page, [0, bottomPt]);
+        bottomPt = resolved[1];
+    }
+    return setFrameBottom(frame, bottomPt);
 }
 
 function positionLibaFramesFromBottom(frames, bottomMm, gapMm) {
@@ -377,8 +396,11 @@ function positionLibaFramesFromBottom(frames, bottomMm, gapMm) {
         return;
     }
     var page = getItemPage(frames[frames.length - 1]);
-    var pageTop = page ? page.bounds[0] : 0;
-    var bottomPt = pageTop + mmToPoints(bottomMm);
+    var bottomPt = mmToPoints(bottomMm);
+    if (page) {
+        var resolved = resolvePagePointToPasteboard(page, [0, bottomPt]);
+        bottomPt = resolved[1];
+    }
     var gapPt = mmToPoints(gapMm);
     var nextTop = setFrameBottom(frames[frames.length - 1], bottomPt);
     for (var i = frames.length - 2; i >= 0; i--) {
