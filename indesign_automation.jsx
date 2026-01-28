@@ -85,7 +85,7 @@
         var libaBlock = extractBlockByMarkerAndContains(mainStory, "#", "ליבא בעי");
         if (libaBlock) {
             tempFrame = createTempTextFrame(doc, mainFrame);
-            tempFrame.contents = libaBlock;
+            tempFrame.contents = libaBlock ? String(libaBlock) : "";
             removeFirstParagraphIfStartsWith(tempFrame.parentStory, "#");
 
             var libaBlocks = extractBlocksByMarker(tempFrame.parentStory, "$");
@@ -100,7 +100,7 @@
 
         var zoharText = extractTailAfterMarker(mainStory, "#", "תיקוני זוהר");
         if (zoharText !== null) {
-            zoharFrame.contents = zoharText;
+            zoharFrame.contents = zoharText ? String(zoharText) : "";
             var zoharParagraph = findParagraphStartingWith(zoharFrame.parentStory, "$");
             if (zoharParagraph) {
                 removeLeadingMarker(zoharParagraph, "$");
@@ -259,7 +259,10 @@ function extractBlockByMarkerAndContains(story, marker, containsText) {
     }
     var nextIdx = findNextParagraphIndexStartingWith(story, marker, startIdx + 1);
     var endIdx = (nextIdx === -1) ? story.paragraphs.length - 1 : nextIdx - 1;
-    var range = story.paragraphs.itemByRange(startIdx, endIdx);
+    var range = getTextRangeByParagraphIndices(story, startIdx, endIdx);
+    if (!range) {
+        return null;
+    }
     var text = range.contents;
     range.remove();
     return text;
@@ -274,9 +277,11 @@ function extractTailAfterMarker(story, marker, containsText) {
     var lastIdx = story.paragraphs.length - 1;
     var text = "";
     if (startIdx <= lastIdx) {
-        var range = story.paragraphs.itemByRange(startIdx, lastIdx);
-        text = range.contents;
-        range.remove();
+        var range = getTextRangeByParagraphIndices(story, startIdx, lastIdx);
+        if (range) {
+            text = range.contents;
+            range.remove();
+        }
     }
     if (headerIdx >= 0 && headerIdx < story.paragraphs.length) {
         story.paragraphs[headerIdx].remove();
@@ -303,12 +308,29 @@ function extractBlocksByMarker(story, marker) {
         }
         var nextIdx = findNextParagraphIndexStartingWith(story, marker, startIdx + 1);
         var endIdx = (nextIdx === -1) ? story.paragraphs.length - 1 : nextIdx - 1;
-        var range = story.paragraphs.itemByRange(startIdx, endIdx);
+        var range = getTextRangeByParagraphIndices(story, startIdx, endIdx);
+        if (!range) {
+            break;
+        }
         var text = range.contents;
         range.remove();
         blocks.push(text);
     }
     return blocks;
+}
+
+function getTextRangeByParagraphIndices(story, startIdx, endIdx) {
+    if (startIdx < 0 || endIdx < 0 || endIdx < startIdx) {
+        return null;
+    }
+    if (startIdx >= story.paragraphs.length || endIdx >= story.paragraphs.length) {
+        return null;
+    }
+    var startParagraph = story.paragraphs[startIdx];
+    var endParagraph = story.paragraphs[endIdx];
+    var start = startParagraph.insertionPoints[0];
+    var end = endParagraph.insertionPoints[-1];
+    return story.texts.itemByRange(start, end);
 }
 
 function createTempTextFrame(doc, referenceFrame) {
@@ -328,7 +350,7 @@ function populateLibaFrames(baseFrame, blocks, libaStyle, bodyStyle) {
     for (var i = 0; i < blocks.length; i++) {
         var frame = (i === 0) ? baseFrame : duplicateFrameBelow(previousFrame, 10);
         frame.contents = "";
-        frame.contents = blocks[i];
+        frame.contents = blocks[i] ? String(blocks[i]) : "";
 
         var story = frame.parentStory;
         applyParagraphStyleToStory(story, bodyStyle, false);
