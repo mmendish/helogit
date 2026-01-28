@@ -72,17 +72,43 @@ function textFileFilter(file) {
 }
 
 function findTextFrameByAltText(doc, altText) {
-    var items = doc.pageItems;
-    for (var i = 0; i < items.length; i++) {
-        var item = items[i];
-        if (!(item instanceof TextFrame)) {
-            continue;
-        }
-        var label = getItemLabel(item);
-        if (label === altText) {
-            return item;
+    var frames = doc.textFrames;
+    for (var i = 0; i < frames.length; i++) {
+        if (getItemLabel(frames[i]) === altText) {
+            return frames[i];
         }
     }
+
+    var items = doc.allPageItems;
+    for (var j = 0; j < items.length; j++) {
+        var item = items[j];
+        if (getItemLabel(item) !== altText) {
+            continue;
+        }
+        var frame = getFirstTextFrameFromItem(item);
+        if (frame) {
+            return frame;
+        }
+    }
+
+    return null;
+}
+
+function getFirstTextFrameFromItem(item) {
+    try {
+        if (item instanceof TextFrame) {
+            return item;
+        }
+    } catch (error) {
+    }
+
+    try {
+        if (item.textFrames && item.textFrames.length > 0) {
+            return item.textFrames[0];
+        }
+    } catch (error2) {
+    }
+
     return null;
 }
 
