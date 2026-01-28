@@ -222,9 +222,12 @@ function paragraphStartsWith(paragraph, marker) {
 }
 
 function removeLeadingMarker(paragraph, marker) {
-    var text = stripTrailingReturn(paragraph.contents);
+    var contents = paragraph.contents;
+    var hasReturn = contents.length > 0 && contents.charAt(contents.length - 1) === "\r";
+    var text = stripTrailingReturn(contents);
     var re = new RegExp("^\\s*" + escapeForRegExp(marker) + "\\s*");
-    paragraph.contents = text.replace(re, "");
+    text = text.replace(re, "");
+    paragraph.contents = hasReturn ? (text + "\r") : text;
 }
 
 function findParagraphIndexStartingWith(story, marker, startIndex) {
