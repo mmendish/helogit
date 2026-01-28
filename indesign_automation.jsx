@@ -13,12 +13,18 @@
         var doc = app.activeDocument;
 
         var mainFrame = findTextFrameByAltText(doc, "MAIN_TEXT");
-        var kituvFrame = findTextFrameByAltText(doc, "KITUV");
-        var libaFrame = findTextFrameByAltText(doc, "LIBA");
-        var zoharFrame = findTextFrameByAltText(doc, "ZOHAR");
+        if (!mainFrame) {
+            alert("Missing text frame labeled MAIN_TEXT.");
+            return;
+        }
 
-        if (!mainFrame || !kituvFrame) {
-            alert("Missing text frames labeled MAIN_TEXT and/or KITUV.");
+        var targetPage = getItemPage(mainFrame);
+        var kituvFrame = findTextFrameByAltText(doc, "KITUV", targetPage);
+        var libaFrame = findTextFrameByAltText(doc, "LIBA", targetPage);
+        var zoharFrame = findTextFrameByAltText(doc, "ZOHAR", targetPage);
+
+        if (!kituvFrame) {
+            alert("Missing text frame labeled KITUV.");
             return;
         }
 
@@ -63,6 +69,7 @@
 
         mainFrame.place(textFile);
         var mainStory = mainFrame.parentStory;
+        removeLeadingEmptyParagraphs(mainStory);
 
         var kituvParagraph = findParagraphStartingWith(mainStory, "!");
         if (!kituvParagraph) {
@@ -127,44 +134,44 @@ function isSupportedTextFile(file) {
     return /\.(docx?|rtf|txt)$/i.test(file.name);
 }
 
-function findTextFrameByAltText(doc, altText) {
+function findTextFrameByAltText(doc, altText, page) {
     var frames = doc.textFrames;
     var matches = [];
     for (var i = 0; i < frames.length; i++) {
-        if (getItemLabel(frames[i]) === altText) {
+        if (getItemAltText(frames[i]) === altText && isItemOnPage(frames[i], page)) {
             matches.push(frames[i]);
         }
     }
 
-    if (matches.length === 1) {
-        return matches[0];
-    }
-
-    if (matches.length > 1) {
-        alert("Multiple text frames labeled " + altText + ". Please keep labels unique.");
-        return matches[0];
+    if (matches.length > 0) {
+        if (matches.length > 1) {
+            alert("Multiple text frames labeled " + altText + ". Using the top-most frame.");
+        }
+        return selectTopLeftFrame(matches);
     }
 
     var items = doc.allPageItems;
-    var fallback = null;
-    var fallbackCount = 0;
+    var fallbackFrames = [];
     for (var j = 0; j < items.length; j++) {
         var item = items[j];
-        if (getItemLabel(item) !== altText) {
+        if (getItemAltText(item) !== altText || !isItemOnPage(item, page)) {
             continue;
         }
         var frame = getSingleTextFrameFromItem(item);
         if (frame) {
-            fallback = frame;
-            fallbackCount += 1;
+            fallbackFrames.push(frame);
         }
     }
 
-    if (fallbackCount > 1) {
-        alert("Multiple items labeled " + altText + " contain text frames. Label the text frame itself.");
+    if (fallbackFrames.length > 1) {
+        alert("Multiple items labeled " + altText + " contain text frames. Using the top-most frame.");
     }
 
-    return fallback;
+    if (fallbackFrames.length > 0) {
+        return selectTopLeftFrame(fallbackFrames);
+    }
+
+    return null;
 }
 
 function getSingleTextFrameFromItem(item) {
@@ -185,7 +192,7 @@ function getSingleTextFrameFromItem(item) {
     return null;
 }
 
-function getItemLabel(item) {
+function getItemAltText(item) {
     var label = "";
     try {
         if (item.objectExportOptions) {
@@ -194,14 +201,63 @@ function getItemLabel(item) {
     } catch (error) {
         label = "";
     }
-    if (!label) {
-        try {
-            label = item.label || "";
-        } catch (errorLabel) {
-            label = "";
+    return trimString(label);
+}
+
+function getItemPage(item) {
+    try {
+        if (item.parentPage) {
+            return item.parentPage;
+        }
+    } catch (error) {
+    }
+    return null;
+}
+
+function isItemOnPage(item, page) {
+    if (!page) {
+        return true;
+    }
+    var itemPage = getItemPage(item);
+    if (!itemPage) {
+        return false;
+    }
+    if (itemPage === page) {
+        return true;
+    }
+    try {
+        if (page.appliedMaster && itemPage.parent === page.appliedMaster) {
+            return true;
+        }
+    } catch (error) {
+    }
+    return false;
+}
+
+function selectTopLeftFrame(frames) {
+    var best = frames[0];
+    var bestBounds = best.geometricBounds;
+    for (var i = 1; i < frames.length; i++) {
+        var bounds = frames[i].geometricBounds;
+        if (bounds[0] < bestBounds[0] || (bounds[0] === bestBounds[0] && bounds[1] < bestBounds[1])) {
+            best = frames[i];
+            bestBounds = bounds;
         }
     }
-    return trimString(label);
+    return best;
+}
+
+function clearAltTextLabel(item) {
+    try {
+        if (item.objectExportOptions) {
+            item.objectExportOptions.customAltText = "";
+        }
+    } catch (error) {
+    }
+    try {
+        item.label = "";
+    } catch (errorLabel) {
+    }
 }
 
 function trimString(value) {
@@ -226,6 +282,17 @@ function findParagraphStartingWith(story, marker) {
 
 function stripTrailingReturn(text) {
     return text.replace(/\r$/, "");
+}
+
+function removeLeadingEmptyParagraphs(story) {
+    while (story.paragraphs.length > 0) {
+        var paragraph = story.paragraphs[0];
+        var text = stripTrailingReturn(paragraph.contents);
+        if (trimString(text).length > 0) {
+            break;
+        }
+        paragraph.remove();
+    }
 }
 
 function escapeForRegExp(value) {
@@ -387,6 +454,7 @@ function duplicateFrameBelow(referenceFrame, gap) {
     var duplicate = referenceFrame.duplicate();
     var bounds = referenceFrame.geometricBounds;
     var height = bounds[2] - bounds[0];
+    clearAltTextLabel(duplicate);
     duplicate.geometricBounds = [bounds[2] + gap, bounds[1], bounds[2] + gap + height, bounds[3]];
     return duplicate;
 }
